@@ -1,0 +1,62 @@
+name: "Infrastructure Management - AWS & K3s"
+
+on:
+  push:
+    branches:
+      - main
+  # Permet de déclencher manuellement la destruction depuis l'onglet Actions
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action à effectuer (apply ou destroy)'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+        - apply
+        - destroy
+
+jobs:
+  terraform:
+    name: "Terraform Execution"
+    runs-on: ubuntu-latest
+    
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: "eu-west-3" 
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }} 
+
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Setup Terraform"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: "Terraform Init"
+        run: terraform init
+
+      # --- LOGIQUE DE DESTRUCTION ---
+      - name: "Terraform Destroy"
+        if: github.event.inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -input=false
+
+      # --- LOGIQUE DE DÉPLOIEMENT ---
+      - name: "Terraform Plan"
+        if: github.event.inputs.action != 'destroy'
+        id: plan
+        run: terraform plan -input=false
+
+      - name: "Terraform Apply"
+        if: github.ref == 'refs/heads/main' && github.event.inputs.action != 'destroy'
+        run: terraform apply -auto-approve -input=false
+
+      - name: "Display Output"
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          echo "L'instance est en cours de déploiement..."
+          terraform output instance_ip
+          echo "L'application sera accessible sur http://$(terraform output -raw instance_ip) d'ici 2 minutes."
